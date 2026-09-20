@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="CSS/style.css">
+</head>
+<body>
+
+<div id="sky"></div>
+<header class="top">달빛 아래, 나의 페이지</header>
+
+<main class="content"><div class="wrap">
+
+  <!-- 이번주 일정 -->
+  <section>
+    <div class="shead">
+      <div class="stitle">
+        <span class="mark">&#10048;</span>
+        <h2 id="calTitle"></h2>
+        <span class="range" id="weekRange"></span>
+      </div>
+      <span class="live" onclick="renderWeek()" title="클릭하면 즉시 새로고침">
+        <span class="dot"></span><span id="syncLabel">실시간</span>
+      </span>
+    </div>
+    <div class="week" id="week"></div>
+  </section>
+
+  <!-- 프로필 -->
+  <section class="profile">
+    <aside class="pside">
+      <div class="pshot"><div class="portrait" id="portrait"></div></div>
+      <div class="pblock">
+        <p class="eyebrow">Find me</p>
+        <nav class="links" id="links"></nav>
+      </div>
+    </aside>
+
+    <div class="pinfo">
+      <p class="eyebrow">Profile</p>
+      <h2 id="pName"></h2>
+      <div class="hearts" id="pHearts"></div>
+      <div class="bubble" id="pBubble"></div>
+      <div class="pblock">
+        <p class="eyebrow">About</p>
+        <div class="rows" id="pRows"></div>
+      </div>
+    </div>
+  </section>
+
+</div></main>
+
+<footer>made under a quiet sky</footer>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+initPage('index.html');
+renderLinks('#links');
+
+/* 프로필 — 관리자 페이지에서 저장한 값이 있으면 그쪽을 먼저 씁니다 */
+(async function(){
+  var p=CFG.profile||{}, st={};
+  try{ st=(await DB.settings())||{}; }catch(e){ }
+
+  /* ── 사진 ── */
+  var src = st.profile_image || p.image || '';
+  var box = document.getElementById('portrait');
+  if(src){
+    var img=new Image();
+    img.alt=fullName();
+    /* 가로로 긴 사진이면 프로필 카드를 위아래 배치로 바꿉니다 */
+    img.onload=function(){
+      if(img.naturalWidth > img.naturalHeight*1.15){
+        var sec=document.querySelector('.profile');
+        if(sec) sec.classList.add('wide');
+      }
+    };
+    img.onerror=function(){ box.innerHTML='<div class="ph">&#129498;</div>'; };
+    img.src=src;
+    box.innerHTML=''; box.appendChild(img);
+  }else{
+    box.innerHTML='<div class="ph">&#129498;</div>';
+  }
+
+  /* ── 이름 · 하트 ── */
+  document.getElementById('pName').innerHTML =
+    esc(p.nameMain)+(p.nameAccent?'<span>'+esc(p.nameAccent)+'</span>':'');
+
+  var h=''; for(var i=0;i<(p.hearts||0);i++) h+='\u2665 ';
+  document.getElementById('pHearts').textContent=h.trim();
+
+  /* ── 항목 ── */
+  var rows = p.rows || [];
+  if(st.profile_rows){
+    try{
+      var saved=JSON.parse(st.profile_rows);
+      if(Array.isArray(saved)) rows=saved;
+    }catch(e){ }
+  }
+
+  document.getElementById('pRows').innerHTML=rows.map(function(r){
+    var raw=String(r.value==null?'':r.value).trim();
+    /* 가운뎃점만 구분자로 씁니다. 쉼표까지 쪼개면 1,000살 같은 값이 갈려요 */
+    var parts=raw.split(/\s*·\s*/).filter(Boolean);
+    var v;
+
+    if(/^https?:\/\//i.test(raw)){
+      /* 주소를 그대로 노출하면 지저분해서 링크 칩으로 바꿉니다 */
+      v='<a class="vlink" href="'+esc(raw)+'" target="_blank" rel="noopener">바로가기 ↗</a>';
+    }else if(parts.length>1){
+      /* 가운뎃점이나 쉼표로 나열한 값은 태그로 풀어줍니다 */
+      v='<span class="chips">'+parts.map(function(t){
+          return '<span>'+esc(t)+'</span>';
+        }).join('')+'</span>';
+    }else{
+      v=r.highlight ? '<b>'+esc(raw)+'</b>' : esc(raw);
+    }
+    if(r.dday) v+=' <span class="dday" id="dday"></span>';
+
+    return '<div class="r"><span class="k">'+esc(r.key)+'</span>'
+         + '<span class="v">'+v+'</span></div>';
+  }).join('');
+
+  /* ── 말풍선 ── */
+  var b=document.getElementById('pBubble');
+  var bubble = st.profile_bubble || p.bubble;
+  if(bubble) b.textContent=bubble; else b.style.display='none';
+
+  /* ── D-day ── */
+  var el=document.getElementById('dday');
+  if(el && p.debutDate){
+    var now=new Date(); now.setHours(0,0,0,0);
+    var d=new Date(p.debutDate+'T00:00:00');
+    var diff=Math.round((d-now)/86400000);
+    el.textContent = diff>0 ? 'D-'+diff : (diff===0 ? 'D-DAY' : '데뷔 '+(-diff+1)+'일째');
+  }
+})();
+
+/* 주간 일정 (구글 캘린더) */
+var CAL=CFG.calendar||{};
+var DOW=['월','화','수','목','금','토','일'];
+document.getElementById('calTitle').textContent=T(CAL.sectionTitle||'이번주 일정');
+
+function ymd(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
+function ymdTZ(d){return new Intl.DateTimeFormat('en-CA',{timeZone:CAL.timezone||'Asia/Seoul'}).format(d);}
+function mondayOf(date){
+  var d=new Date(date); d.setHours(0,0,0,0);
+  d.setDate(d.getDate()-((d.getDay()+6)%7));
+  return d;
+}
+
+async function fetchWeek(start,end){
+  if(!CAL.apiKey||!CAL.calendarId) return {};
+  var tz=CAL.timezone||'Asia/Seoul';
+  var url='https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(CAL.calendarId)+'/events'
+    +'?key='+CAL.apiKey+'&singleEvents=true&orderBy=startTime&maxResults=100&timeZone='+tz
+    +'&timeMin='+encodeURIComponent(start+'T00:00:00+09:00')
+    +'&timeMax='+encodeURIComponent(end+'T23:59:59+09:00');
+  var out={};
+  try{
+    var r=await fetch(url);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var j=await r.json();
+    (j.items||[]).forEach(function(ev){
+      var st=ev.start||{}, key, tl='';
+      if(st.date){ key=st.date; }
+      else if(st.dateTime){
+        var dt=new Date(st.dateTime);
+        key=ymdTZ(dt);
+        tl=new Intl.DateTimeFormat('ko-KR',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false}).format(dt);
+      } else return;
+      (out[key]=out[key]||[]).push({time:tl, title:ev.summary||'(제목 없음)'});
+    });
+  }catch(e){ }
+  return out;
+}
+
+async function renderWeek(){
+  var mon=mondayOf(new Date());
+  var sun=new Date(mon); sun.setDate(sun.getDate()+6);
+  var todayStr=ymd(new Date());
+
+  document.getElementById('weekRange').textContent=
+    (mon.getMonth()+1)+'/'+mon.getDate()+' ~ '+(sun.getMonth()+1)+'/'+sun.getDate();
+
+  var data=await fetchWeek(ymd(mon),ymd(sun));
+  var html='';
+  for(var i=0;i<7;i++){
+    var d=new Date(mon); d.setDate(mon.getDate()+i);
+    var ds=ymd(d);
+    var cls='day'+(i===6?' sun':'')+(i===5?' sat':'');
+    if(ds===CAL.specialDate) cls+=' special';
+    else if(ds===todayStr) cls+=' today';
+
+    var evts=data[ds]||[], inner;
+    if(evts.length){
+      /* 첫 일정만 보여주고, 나머지는 +N 배지로 알립니다 */
+      var first=evts[0], extra=evts.length-1;
+      var tip=esc(evts.map(function(e){return (e.time?e.time+' ':'')+e.title;}).join(' / '));
+      inner=(first.time?'<span class="etime">'+esc(first.time)+'</span>':'')
+           +'<span class="etitle">'+esc(first.title)+'</span>';
+      if(extra) inner+='<span class="emore">+'+extra+'</span>';
+      inner='<div class="evt'+(extra?' more':'')+'" title="'+tip+'"'
+           +(extra?' onclick="goSchedule(\''+ds+'\')"':'')
+           +'><div class="evt-in">'+inner+'</div></div>';
+    }else{
+      inner='<div class="evt empty"><div class="evt-in"><span class="etitle">'
+            +esc(CAL.emptyText||'\u2014')+'</span></div></div>';
+    }
+    html+='<div class="'+cls+'"><div class="dow">'+DOW[i]+'</div>'
+        +'<div class="date">'+d.getDate()+'</div>'+inner+'</div>';
+  }
+  document.getElementById('week').innerHTML=html;
+
+  var t=new Date(), p=function(n){return('0'+n).slice(-2);};
+  document.getElementById('syncLabel').textContent='업데이트 '+
+    t.getFullYear()+'-'+p(t.getMonth()+1)+'-'+p(t.getDate())+' '+
+    p(t.getHours())+':'+p(t.getMinutes())+':'+p(t.getSeconds());
+}
+
+/* +N 배지 클릭 — 일정 페이지가 준비되면 그 날짜로 이동해 하이라이트합니다.
+   config.js 의 calendar.schedulePage 가 비어 있으면 아직 이동하지 않아요. */
+function goSchedule(ds){
+  if(!CAL.schedulePage) return;
+  location.href = CAL.schedulePage + '#d=' + ds;
+}
+
+renderWeek();
+setInterval(renderWeek,(CAL.pollMinutes||60)*60*1000);
+(function rollover(){
+  var now=new Date(), nm=mondayOf(now);
+  nm.setDate(nm.getDate()+7);
+  setTimeout(function(){ renderWeek(); rollover(); },(nm-now)+1000);
+})();
+</script>
+</body>
+</html>
